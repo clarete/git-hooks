@@ -39,9 +39,15 @@ func main() {
 			Action: bind(uninstall),
 		},
 		{
-			Name:   "install-global",
-			Usage:  "Install git-hooks in global. Future initialized repo will install git-hooks by default",
-			Action: bind(installGlobal),
+			Name:  "install-global",
+			Usage: "Install git-hooks in global. Future initialized repo will install git-hooks by default",
+			Action: func(c *cli.Context) {
+				home, err := homedir.Dir()
+				if err != nil {
+					return
+				}
+				installGlobal(home)
+			},
 		},
 		{
 			Name:   "uninstall-global",
@@ -75,11 +81,11 @@ func main() {
 func list() {
 	installed, err := isInstalled()
 	if err != nil {
-		logger.Infoln("Current directory is not a git repo")
+		logger.Infoln(MESSAGES["NotGitRepo"])
 	} else if installed {
-		logger.Infoln("Git hooks ARE installed in this repository.")
+		logger.Infoln(MESSAGES["Installed"])
 	} else {
-		logger.Infoln("Git hooks are NOT installed in this repository. (Run 'git hooks install' to install it)")
+		logger.Infoln(MESSAGES["NotInstalled"])
 	}
 
 	for scope, dir := range hookDirs() {
@@ -143,26 +149,26 @@ func isInstalled() (installed bool, err error) {
 func install(isInstall bool) {
 	dirPath, err := getGitDirPath()
 	if err != nil {
-		logger.Errorln("Current directory is not a git repo")
+		logger.Errorln(MESSAGES["NotGitRepo"])
 		return
 	}
 
 	if isInstall {
 		isExist, _ := exists(filepath.Join(dirPath, "hooks.old"))
 		if isExist {
-			logger.Errorln("@rhooks.old already exists, perhaps you already installed?")
+			logger.Errorln(MESSAGES["ExistHooks"])
 			return
 		}
 		installInto(dirPath, tplPostInstall)
 	} else {
 		isExist, _ := exists(filepath.Join(dirPath, "hooks.old"))
 		if !isExist {
-			logger.Errorln("Error, hooks.old doesn't exists, aborting uninstall to not destroy something")
+			logger.Errorln(MESSAGES["NotExistHooks"])
 			return
 		}
 		os.RemoveAll(filepath.Join(dirPath, "hooks"))
 		os.Rename(filepath.Join(dirPath, "hooks.old"), filepath.Join(dirPath, "hooks"))
-		logger.Infoln("Restore hooks.old")
+		logger.Infoln(MESSAGES["Restore"])
 	}
 }
 
@@ -172,16 +178,13 @@ func uninstall() {
 }
 
 // Install git-hooks global by setup init.tempdir in ~/.gitconfig
-func installGlobal() {
-	templatedir := ".git-template-with-git-hooks"
-	home, err := homedir.Dir()
-	if err == nil {
-		templatedir = filepath.Join(home, templatedir)
-	}
+func installGlobal(home string) {
+	templatedir := DIRS["HomeTemplate"]
+	templatedir = filepath.Join(home, templatedir)
 
 	isExist, _ := exists(templatedir)
 	if !isExist {
-		defaultdir := "/usr/share/git-core/templates"
+		defaultdir := DIRS["GlobalTemplate"]
 		isExist, _ = exists(defaultdir)
 		if isExist {
 			os.Link(defaultdir, templatedir)
@@ -190,14 +193,13 @@ func installGlobal() {
 		}
 		installInto(templatedir, tplPreInstall)
 	}
-	gitExec("config --global init.templatedir " + templatedir)
-	os.Rename(filepath.Join(templatedir, "hooks.old"), filepath.Join(templatedir, "hooks.original"))
-	logger.Infoln("Git global config init.templatedir is now set to " + templatedir)
+	gitExec(GIT["SetTemplateDir"] + templatedir)
+	logger.Infoln(MESSAGES["SetTemplateDir"] + templatedir)
 }
 
 // Reset init.tempdir
 func uninstallGlobal() {
-	gitExec("config --global --unset init.templatedir")
+	gitExec(GIT["UnsetTemplateDir"])
 }
 
 // Check latest version of git-hooks by github release
@@ -458,9 +460,10 @@ func runHook(hook string, args ...string) (status int, err error) {
 func installInto(dir string, template string) {
 	// backup
 	os.Rename(filepath.Join(dir, "hooks"), filepath.Join(dir, "hooks.old"))
+
 	os.Mkdir(filepath.Join(dir, "hooks"), 0755)
 	for _, hook := range TRIGGERS {
-		logger.Infoln("Install ", hook)
+		logger.Infoln("Install " + hook)
 		f, _ := os.Create(filepath.Join(dir, "hooks", hook))
 		f.WriteString(template)
 		f.Sync()

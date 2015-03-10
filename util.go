@@ -23,7 +23,14 @@ func getGitDirPath() (string, error) {
 	return gitExec("rev-parse --git-dir")
 }
 
+var cmds = []string{}
+
 func gitExec(args ...string) (string, error) {
+	if isTestEnv() {
+		// prepend
+		cmds = append([]string{strings.Join(args, "")}, cmds...)
+	}
+
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", err
