@@ -6,7 +6,6 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/google/go-github/github"
 	"github.com/mitchellh/go-homedir"
-	. "github.com/tj/go-debug"
 	"io"
 	"io/ioutil"
 	"os"
@@ -16,8 +15,6 @@ import (
 	"strings"
 	"syscall"
 )
-
-var debug = Debug("main")
 
 func main() {
 	app := cli.NewApp()
@@ -179,22 +176,19 @@ func uninstall() {
 
 // Install git-hooks global by setup init.tempdir in ~/.gitconfig
 func installGlobal(home string) {
-	templatedir := DIRS["HomeTemplate"]
-	templatedir = filepath.Join(home, templatedir)
-
-	isExist, _ := exists(templatedir)
-	if !isExist {
-		defaultdir := DIRS["GlobalTemplate"]
-		isExist, _ = exists(defaultdir)
-		if isExist {
-			os.Link(defaultdir, templatedir)
-		} else {
-			os.Mkdir(filepath.Join(templatedir, "hooks"), 0755)
-		}
-		installInto(templatedir, tplPreInstall)
+	homeTemplate := DIRS["HomeTemplate"]
+	if !filepath.IsAbs(homeTemplate) {
+		homeTemplate = filepath.Join(home, homeTemplate)
 	}
-	gitExec(GIT["SetTemplateDir"] + templatedir)
-	logger.Infoln(MESSAGES["SetTemplateDir"] + templatedir)
+
+	isExist, _ := exists(homeTemplate)
+	if !isExist {
+		os.MkdirAll(filepath.Join(homeTemplate, "hooks"), 0755)
+		installInto(homeTemplate, tplPreInstall)
+	}
+
+	gitExec(GIT["SetTemplateDir"] + homeTemplate)
+	logger.Infoln(MESSAGES["SetTemplateDir"] + homeTemplate)
 }
 
 // Reset init.tempdir
@@ -227,7 +221,6 @@ func update() {
 		logger.Errorln("Semver parse error ", err)
 		return
 	}
-	debug("Current version %s, latest version %s", current, latest)
 
 	if !latest.GT(current) {
 		logger.Infoln("Your " + NAME + " is update to date")
@@ -273,7 +266,6 @@ func update() {
 			return
 		}
 
-		debug("Replace %s with temp file %s", fileName, tmpFileName)
 		out, err := os.Create(fileName)
 		if err != nil {
 			logger.Errorln("Create error ", err)
@@ -306,7 +298,7 @@ func update() {
 }
 
 func identity() {
-	identity, err := gitExec("rev-list --max-parents=0 HEAD")
+	identity, err := gitExec(GIT["FirstCommit"])
 	if err != nil {
 		logger.Errorln(err)
 		return
@@ -433,8 +425,6 @@ func getContribDir() (contrib string) {
 // Execute specific hook with arguments
 // Return error message as out if error occured
 func runHook(hook string, args ...string) (status int, err error) {
-	debug("Execute hook %s %s", hook, args)
-
 	cmd := exec.Command(hook, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

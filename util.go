@@ -23,14 +23,7 @@ func getGitDirPath() (string, error) {
 	return gitExec("rev-parse --git-dir")
 }
 
-var cmds = []string{}
-
 func gitExec(args ...string) (string, error) {
-	if isTestEnv() {
-		// prepend
-		cmds = append([]string{strings.Join(args, "")}, cmds...)
-	}
-
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", err
@@ -77,8 +70,6 @@ func exists(path string) (bool, error) {
 // Download file from url.
 // Downloaded file stored in temporary directory
 func downloadFromUrl(url string) (fileName string, err error) {
-	debug("Downloading %s", url)
-
 	file, err := ioutil.TempFile(os.TempDir(), NAME)
 	if err != nil {
 		return
@@ -93,13 +84,11 @@ func downloadFromUrl(url string) (fileName string, err error) {
 	}
 	defer response.Body.Close()
 
-	n, err := io.Copy(file, response.Body)
+	_, err = io.Copy(file, response.Body)
 	if err != nil {
 		return
 	}
 
-	debug("Download success")
-	debug("%n bytes downloaded.", n)
 	return
 }
 

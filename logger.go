@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/wsxiaoys/terminal/color"
 	"os"
 )
@@ -65,6 +66,13 @@ func (logger *Logger) clear() {
 	logger.infos = logger.infos[:0]
 	logger.warns = logger.warns[:0]
 	logger.errors = logger.errors[:0]
+}
+
+func (logger *Logger) flush() {
+	fmt.Println(logger.infos)
+	fmt.Println(logger.warns)
+	fmt.Println(logger.errors)
+	logger.clear()
 }
 
 var logger = new(Logger)

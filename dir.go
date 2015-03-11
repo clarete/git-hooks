@@ -132,7 +132,6 @@ func listHooksInDir(scope, dirname string) (hooks map[string][]string, err error
 			}
 		}
 	}
-	debug("%s scope hooks %s", scope, hooks)
 
 	//
 	// exclude
@@ -143,11 +142,10 @@ func listHooksInDir(scope, dirname string) (hooks map[string][]string, err error
 		if err == nil {
 			var excludes interface{}
 			json.Unmarshal(file, &excludes)
-			debug("excludes %s", excludes)
 
 			wrapper := make(map[string]interface{})
 			// repoid will be empty string if not in a git repo or don't have any commit yet
-			repoid, _ := gitExec("rev-list --max-parents=0 HEAD")
+			repoid, _ := gitExec(GIT["FirstCommit"])
 
 			if scope == "user" {
 				wrapper[repoid] = hooks
@@ -176,7 +174,6 @@ func listHooksInDir(scope, dirname string) (hooks map[string][]string, err error
 			}
 		}
 	}
-	debug("%s scope hooks %s after exclusion", scope, hooks)
 
 	return hooks, nil
 }

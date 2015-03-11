@@ -23,8 +23,11 @@ var DIRS = map[string]string{
 }
 
 var GIT = map[string]string{
-	"SetTemplateDir":   "config --global init.templatedir ",
-	"UnsetTemplateDir": "config --global --unset init.templatedir",
+	"SetTemplateDir":    "config --global init.templatedir ",
+	"GetTemplateDir":    "config --global --get init.templatedir",
+	"UnsetTemplateDir":  "config --global --unset init.templatedir",
+	"RemoveTemplateDir": "config --global --remove init",
+	"FirstCommit":       "rev-list --max-parents=0 HEAD",
 }
 
 var MESSAGES = map[string]string{
