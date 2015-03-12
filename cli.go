@@ -6,7 +6,6 @@ import (
 	"github.com/codegangsta/cli"
 	"github.com/google/go-github/github"
 	"github.com/mitchellh/go-homedir"
-	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -52,9 +51,16 @@ func main() {
 			Action: bind(uninstallGlobal),
 		},
 		{
-			Name:   "update",
-			Usage:  "Check and update git-hooks",
-			Action: bind(update),
+			Name:  "update",
+			Usage: "Check and update git-hooks",
+			Action: func(c *cli.Context) {
+				logger.Infoln("Check latest version...")
+
+				client := github.NewClient(nil)
+				releases, _, _ := client.Repositories.ListReleases(
+					"git-hooks", "git-hooks", &github.ListOptions{})
+				update(releases)
+			},
 		},
 		{
 			Name:  "run",
@@ -103,7 +109,7 @@ func list() {
 		logger.Infoln()
 	}
 
-	logger.Infoln("Community hooks")
+	logger.Infoln("Contrib hooks")
 	for scope, configPath := range hookConfigs() {
 		logger.Infoln(scope + " hooks")
 
@@ -198,18 +204,11 @@ func uninstallGlobal() {
 
 // Check latest version of git-hooks by github release
 // If there are new version of git-hooks, download and replace the current one
-func update() {
-	logger.Infoln("Current git-hooks version is " + VERSION)
-	logger.Infoln("Check latest version...")
-
-	client := github.NewClient(nil)
-	releases, _, _ := client.Repositories.ListReleases(
-		"git-hooks", "git-hooks", &github.ListOptions{})
+func update(releases []github.RepositoryRelease) {
 	release := releases[0]
 	version := *release.TagName
-	logger.Infoln("Latest version is " + version)
+	logger.Infoln("Current version is " + VERSION + ", latest version is " + version)
 
-	// compare version
 	current, err := semver.New(VERSION[1:])
 	if err != nil {
 		logger.Errorln("Semver parse error ", err)
@@ -222,77 +221,49 @@ func update() {
 		return
 	}
 
-	if !latest.GT(current) {
+	// latest version
+	if current.GTE(latest) {
 		logger.Infoln("Your " + NAME + " is update to date")
 		return
 	}
 
-	// version compability
+	// backward incompatible
 	if latest.Major != current.Major {
-		logger.Infoln("Current version is ", current)
-		logger.Infoln("Latest version is ", latest)
-		logger.Infoln("Version incompatible, manually update please")
+		logger.Infoln("Version backward incompatible, manually update required")
 		return
 	}
 
-	logger.Infoln("Download latest version...")
+	// previous version
 	target := fmt.Sprintf("git-hooks_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
-
 	for _, asset := range release.Assets {
 		if *asset.Name != target {
 			continue
 		}
 
 		// download
+		logger.Infoln("Downloading latest version...")
 		tmpFileName, err := downloadFromUrl(*asset.BrowserDownloadURL)
 		if err != nil {
-			logger.Errorln("Download error", err)
+			logger.Errorln("Fail to download", err)
 			return
 		}
 		logger.Infoln("Download complete")
 
-		// uncompress
+		// extract
 		tmpFileName, err = extract(tmpFileName)
 		if err != nil {
-			logger.Errorln("Download error", err)
+			logger.Errorln("Fail to extract tar.gz", err)
 			return
 		}
 		logger.Infoln("Extract complete")
 
-		// replace current version
-		fileName, err := absExePath(os.Args[0])
+		// install binary
+		err = installBinary(tmpFileName)
 		if err != nil {
-			logger.Errorln(err)
+			logger.Errorln("Fail to install binary", err)
 			return
 		}
-
-		out, err := os.Create(fileName)
-		if err != nil {
-			logger.Errorln("Create error ", err)
-			return
-		}
-		defer out.Close()
-
-		err = out.Chmod(0755)
-		if err != nil {
-			logger.Errorln("Create error ", err)
-			return
-		}
-
-		in, err := os.Open(tmpFileName)
-		if err != nil {
-			logger.Errorln("Open error ", err)
-			return
-		}
-		defer in.Close()
-
-		_, err = io.Copy(out, in)
-		if err != nil {
-			logger.Errorln("Copy error ", err)
-			return
-		}
-		logger.Infoln(NAME + " update to " + version)
-
+		logger.Infoln("Successfully update " + NAME + " to " + version)
 		break
 	}
 }
@@ -317,24 +288,24 @@ func run(cmds ...string) {
 	trigger := filepath.Base(cmds[0])
 	args := cmds[1:]
 
-	runDirHooks(trigger, args...)
-	runContribHooks(trigger, args...)
+	runDirHooks(hookDirs(), trigger, args...)
+	runConfigHooks(hookConfigs(), getContribDir(), trigger, args...)
 }
 
-func runDirHooks(trigger string, args ...string) {
-	for scope, dir := range hookDirs() {
-		config, err := listHooksInDir(scope, dir)
+func runDirHooks(dirs map[string]string, current string, args ...string) {
+	for scope, dir := range dirs {
+		structure, err := listHooksInDir(scope, dir)
 		if err != nil {
 			continue
 		}
 
-		for t, hooks := range config {
+		for trigger, hooks := range structure {
 			// semi scope
-			if t != trigger && t != ("_"+trigger) {
+			if trigger != current && trigger != ("_"+current) {
 				continue
 			}
 			for _, hook := range hooks {
-				status, err := runHook(filepath.Join(dir, t, hook), args...)
+				status, err := runHook(filepath.Join(dir, trigger, hook), args...)
 				if err != nil {
 					logger.Errorsln(status, err)
 					return
@@ -344,20 +315,18 @@ func runDirHooks(trigger string, args ...string) {
 	}
 }
 
-func runContribHooks(trigger string, args ...string) {
-	contrib := getContribDir()
-
+func runConfigHooks(configs map[string]string, contrib string, current string, args ...string) {
 	// wether contrib repo updated
 	updated := false
 
-	for _, configPath := range hookConfigs() {
-		config, err := listHooksInConfig(configPath)
+	for _, config := range configs {
+		structure, err := listHooksInConfig(config)
 		if err != nil {
 			continue
 		}
 
-		for t, repo := range config {
-			if t != trigger {
+		for trigger, repo := range structure {
+			if trigger != current {
 				continue
 			}
 
@@ -365,16 +334,15 @@ func runContribHooks(trigger string, args ...string) {
 				// check if repo exist in local file system
 				isExist, _ := exists(filepath.Join(contrib, repoName))
 				if !isExist {
-					logger.Infoln("Cloning repo " + repoName)
-					_, err := gitExec(fmt.Sprintf("clone https://%s %s", repoName, filepath.Join(contrib, repoName)))
+					cmd := fmt.Sprintf("clone https://%s %s", repoName, filepath.Join(contrib, repoName))
+					logger.Infoln(cmd)
+					_, err := gitExec(cmd)
 					if err != nil {
-						fmt.Printf("clone https://%s %s", repoName, filepath.Join(contrib, repoName))
-						fmt.Println(err)
+						logger.Warnln(err)
 						continue
 					}
 				}
 
-				// execute hook
 				for index := 0; index < len(hooks); index++ {
 					hook := hooks[index]
 
@@ -384,42 +352,26 @@ func runContribHooks(trigger string, args ...string) {
 						continue
 					}
 
+					// hook not found
 					if status == 126 && !updated {
 						// try to update contrib repo
-						logger.Infoln("Update community hooks")
+						logger.Infoln("Updating contrib hooks")
 						updated = true
 
-						_, err := gitExecWithDir(filepath.Join(contrib, repoName), fmt.Sprintf("pull origin master"))
+						_, err := gitExecWithDir(filepath.Join(contrib, repoName), "pull origin master")
 						if err == nil {
+							// try again
 							index--
 							continue
 						}
 
-						logger.Warnln("There is something not right with your community hook repo")
+						logger.Warnln("Something wrong with contrib hook")
 					}
 					logger.Errorsln(status, err)
 				}
 			}
 		}
 	}
-}
-
-// Find contrib directory
-func getContribDir() (contrib string) {
-	contrib, err := gitExec("config --get hooks.contrib")
-	isExist, _ := exists(contrib)
-	if err != nil || !isExist {
-		// default to use ~/.githooks-contrib
-		home, err := homedir.Dir()
-		if err != nil {
-			// fallback
-			home = "~"
-		}
-		contrib = filepath.Join(home, "."+CONTRIB_DIRNAME)
-	} else {
-		contrib = filepath.Join(contrib, CONTRIB_DIRNAME)
-	}
-	return
 }
 
 // Execute specific hook with arguments

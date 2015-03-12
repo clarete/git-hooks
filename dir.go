@@ -190,3 +190,21 @@ func listHooksInConfig(config string) (hooks map[string]map[string][]string, err
 	json.Unmarshal(file, &hooks)
 	return
 }
+
+// Find contrib directory
+func getContribDir() (contrib string) {
+	contrib, err := gitExec("config --get hooks.contrib")
+	isExist, _ := exists(contrib)
+	if err != nil || !isExist {
+		// default to use ~/.githooks-contrib
+		home, err := homedir.Dir()
+		if err != nil {
+			// fallback
+			home = "~"
+		}
+		contrib = filepath.Join(home, "."+CONTRIB_DIRNAME)
+	} else {
+		contrib = filepath.Join(contrib, CONTRIB_DIRNAME)
+	}
+	return
+}

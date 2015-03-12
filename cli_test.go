@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/google/go-github/github"
 	"github.com/stretchr/testify/assert"
 	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,7 +191,28 @@ func TestUninstallGlobal(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
+	content := "Hello, client"
+	// start test server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, content)
+	}))
+	defer ts.Close()
 
+	tagName := "v1.0.0"
+	assetName := "git-hooks_darwin_386.tar.gz"
+	releases := []github.RepositoryRelease{
+		github.RepositoryRelease{
+			TagName: &tagName,
+			Assets: []github.ReleaseAsset{
+				github.ReleaseAsset{
+					Name:               &assetName,
+					BrowserDownloadURL: &ts.URL,
+				},
+			},
+		},
+	}
+
+	fmt.Println(releases)
 }
 
 func TestIdentity(t *testing.T) {

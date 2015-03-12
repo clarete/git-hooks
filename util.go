@@ -132,6 +132,36 @@ func extract(fileName string) (tmpFileName string, err error) {
 	return
 }
 
+func installBinary(src string) (err error) {
+	dest, err := absExePath(os.Args[0])
+	if err != nil {
+		return
+	}
+
+	out, err := os.Create(dest)
+	if err != nil {
+		return
+	}
+	defer out.Close()
+
+	err = out.Chmod(0755)
+	if err != nil {
+		return
+	}
+
+	in, err := os.Open(src)
+	if err != nil {
+		return
+	}
+	defer in.Close()
+
+	_, err = io.Copy(out, in)
+	if err != nil {
+		return
+	}
+	return
+}
+
 // return fullpath to executable file.
 func absExePath(exe string) (name string, err error) {
 	name = exe
